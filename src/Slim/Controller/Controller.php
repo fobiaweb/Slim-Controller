@@ -37,12 +37,12 @@ namespace Slim\Controller;
 class Controller
 {
     /**
-     * @var \Fobia\Base\Application
+     * @var \Slim\App
      */
     public $app;
     public $params   = array();
 
-    public function __construct(Application $app, $params = array())
+    public function __construct(\Slim\App $app, $params = array())
     {
         $this->app      = $app;
         $this->params   = $params;

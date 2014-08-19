@@ -28,12 +28,14 @@
  */
 namespace Slim\Controller;
 
+use Slim\Interfaces\Http\RequestInterface;
+use Slim\Http\Request;
 /**
- * MapRouter class
+ * Router class
  *
  * @package   Slim.Controller
  */
-class MapRouter
+class Router
 {
 
     /**
@@ -42,17 +44,22 @@ class MapRouter
     private $router;
 
     /**
-     * @var \Slim\Controller\AppController
+     * @var \Slim\App
      */
     protected $app;
     private $request;
 
-    public function __construct(\Slim\Controller\AppController $app,
-                                \Slim\Interfaces\Http\RequestInterface $request = null)
+    /**
+     *
+     * @param \Slim\App $app
+     * @param \Slim\Interfaces\Http\RequestInterface $request
+     */
+    public function __construct(\Slim\App $app, RequestInterface $request = null)
     {
         $this->app     = $app;
-        $this->router  = new \Slim\Router();
         $this->request = $request;
+        
+        $this->router  = new \Slim\Router();
     }
 
     /**
@@ -62,6 +69,80 @@ class MapRouter
     {
         return $this->router;
     }
+
+    /**
+     * Возвращает функцию автозоздания контролера
+     *
+     * Конфиги:
+     *   controller.prefix          - префикс к классу контролера
+     *   controller.suffix          - суффикс к классу контролера
+     *   controller.action_prefix   - префикс к методу действия
+     *   controller.action_suffix   - суффикс к методу действия
+     *
+     * Если имя контролера начинаеться с '\' - расматриваеться как абсолютный путь
+     * и конфиг 'controller.prefix' не применеються
+     *
+     * Example:
+     * При controller.prefix = '\Controller' значение 'AuthController:login'
+     * приобразуеться в \Controller\AuthController->login().
+     * А запись '\AuthController:login' будет \AuthController->login()
+     *
+     * ### Вызов метода из объекта контролера (с ночальным префиксом)
+     * e.g `createController('MyController:action');`
+     *
+     * ### Вызов метода из объекта контролера (глобального пространства имен)
+     * e.g `createController('\MyController:action');`
+     *
+     * ### Вызов метода по умолчанию из объекта контролера (с ночальным префиксом)
+     * e.g `createController('MyController');`
+     *
+     * ### Вызов callback функции
+     * e.g `createController(array($obj, $method));`
+     *
+     * @param string $name
+     * @return callable
+     */
+    public function createController($name)
+    {
+        if ( is_array($name) ) {
+            return function() use($name) {
+                $methodArgs = func_get_args();
+                return call_user_func_array( $name, $methodArgs );
+            };
+        }
+        
+        if ( !is_string($name) ) {
+            return $name;
+        }
+
+        $app = & $this->app;
+        list( $class, $method ) = explode(':', $name);
+
+        // Method name
+        if ( !$method ) {
+            $method = 'index';
+        }
+        $method =  $app['settings']['controller.action_prefix']
+            . $method
+            . $this->app['settings']['controller.action_suffix'];
+
+        // Class name
+        if (substr($class, 0, 1) != '\\') {
+            $class =  $app['settings']['controller.prefix']. $class;
+        }
+        $class .= $app['settings']['controller.suffix'];
+        $class = str_replace('.', '_', $class);
+
+        // Class arguments
+        $classArgs = array_slice(func_get_args(), 1);
+        
+        return function() use ( $app, $classArgs, $class, $method ) {
+            $methodArgs = func_get_args();
+            $controller = new $class( $app, $classArgs );
+            return call_user_func_array( array($controller, $method), $methodArgs );
+        };
+    }
+
 
     /************************************************************************
      * Routing
@@ -101,9 +182,12 @@ class MapRouter
     {
         $pattern  = array_shift($args);
         $callable = array_pop($args);
-        if ( ! is_callable($callable)) {
-            $callable = $this->app->createController($callable);
+
+        //if ( ! is_callable($callable)) {
+        if ( is_string($callable) || is_array($callable) ) {
+            $callable = $this->createController($callable);
         }
+        
         $route = new \Slim\Route($pattern, $callable,
                                  $this->app['settings']['case_sensitive']);
         $this->router->map($route);
@@ -136,7 +220,7 @@ class MapRouter
     {
         $args = func_get_args();
 
-        return $this->mapRoute($args)->via(\Slim\Http\Request::METHOD_GET, \Slim\Http\Request::METHOD_HEAD);
+        return $this->mapRoute($args)->via(Request::METHOD_GET, Request::METHOD_HEAD);
     }
 
     /**
@@ -149,7 +233,7 @@ class MapRouter
     {
         $args = func_get_args();
 
-        return $this->mapRoute($args)->via(\Slim\Http\Request::METHOD_POST);
+        return $this->mapRoute($args)->via(Request::METHOD_POST);
     }
 
     /**
@@ -162,7 +246,7 @@ class MapRouter
     {
         $args = func_get_args();
 
-        return $this->mapRoute($args)->via(\Slim\Http\Request::METHOD_PUT);
+        return $this->mapRoute($args)->via(Request::METHOD_PUT);
     }
 
     /**
@@ -175,7 +259,7 @@ class MapRouter
     {
         $args = func_get_args();
 
-        return $this->mapRoute($args)->via(\Slim\Http\Request::METHOD_PATCH);
+        return $this->mapRoute($args)->via(Request::METHOD_PATCH);
     }
 
     /**
@@ -188,7 +272,7 @@ class MapRouter
     {
         $args = func_get_args();
 
-        return $this->mapRoute($args)->via(\Slim\Http\Request::METHOD_DELETE);
+        return $this->mapRoute($args)->via(Request::METHOD_DELETE);
     }
 
     /**
@@ -201,7 +285,7 @@ class MapRouter
     {
         $args = func_get_args();
 
-        return $this->mapRoute($args)->via(\Slim\Http\Request::METHOD_OPTIONS);
+        return $this->mapRoute($args)->via(Request::METHOD_OPTIONS);
     }
 
     /**
@@ -239,6 +323,10 @@ class MapRouter
 
         return $this->mapRoute($args)->via("ANY");
     }
+    
+    /* ***********************************************
+     * OVERRIDE
+     * ********************************************** */
 
     public function run()
     {
@@ -250,7 +338,7 @@ class MapRouter
         $this->dispatchRequest($request);
     }
 
-    protected function dispatchRequest(\Slim\Http\Request $request)
+    protected function dispatchRequest(Request $request)
     {
         try {
             $dispatched    = false;
@@ -258,7 +346,6 @@ class MapRouter
                     ->getMatchedRoutes($request->getMethod(),
                                        $request->getPathInfo());
             foreach ($matchedRoutes as $route) {
-                /* @var $route \Slim\Route */
                 try {
                     $this->app->applyHook('slim.before.dispatch');
                     $dispatched = $route->dispatch();
